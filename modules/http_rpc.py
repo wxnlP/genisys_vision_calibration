@@ -1,5 +1,4 @@
 import requests
-import json
 
 from algo.transforms import rpy_to_quat
 
@@ -11,9 +10,12 @@ class RpcClient:
     def __init__(self, base_url: str, timeout: float):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.last_error = ""
 
-    def _post(self, service: str, method: str, payload: dict):
+    def _post(self, service: str, method: str, payload: dict) -> bool:
+        """成功返回 True；失败返回 False，原因写入 self.last_error。"""
         url = f"{self.base_url}/rpc/{service}/{method}"
+        self.last_error = ""
         try:
             resp = requests.post(url, json=payload, timeout=self.timeout)
             resp.raise_for_status()
@@ -21,16 +23,15 @@ class RpcClient:
             status_info = result.get("error") or result.get("common_rsp") or result
             code = status_info.get("code", -1)
             if int(code) == 0:
-                print(f"\n✅ {method} succeeded!")
                 return True
-            else:
-                print(f"\n❌ {method} failed (code={code}): \nResponse: {json.dumps(result, indent=2)}")
+            self.last_error = f"code={code} {status_info.get('msg', '')}".strip()
         except requests.exceptions.ConnectionError:
-            print(f"\n❌ {method} 无法连接到 GeniArm (127.0.0.1:50080)，请确认程序已启动。")
+            self.last_error = f"cannot connect to {self.base_url}"
         except requests.exceptions.Timeout:
-            print(f"\n❌ {method} 请求超时，轨迹执行时间过长。")
+            self.last_error = f"timeout after {self.timeout}s"
         except requests.exceptions.RequestException as e:
-            print(f"\n❌ {method} 请求失败: {e}")
+            self.last_error = str(e)
+        return False
 
 
     # --- 机械臂运动（MoveJ 为阻塞语义：任务完成才返回） ---

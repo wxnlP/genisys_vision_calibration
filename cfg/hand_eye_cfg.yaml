@@ -50,6 +50,8 @@ HandEyeModule:
   work_executor: work_thread_pool
   sub_cart_pose_topic: /geniarm/pose_current
 
+  mode: motion_only
+
   # ---- 手眼标定参数----
 
   camera:
@@ -64,3 +66,11 @@ HandEyeModule:
       dict_id: 0
       target_marker_id: 0
     hand_eye_method: TSAI
+
+  # ---- 画面显示：rerun ----
+  rerun:
+    enabled: true
+    grpc_port: 9876            # PC 上执行：rerun rerun+http://<机器人IP>:9876
+    jpeg_quality: 80           # 720p@30fps 下约 5.4 MB/s
+    log_every_n_frames: 1      # 省 CPU / 带宽时调大
+    save_rrd: ""               # 填路径则同时落一份 .rrd 便于回放

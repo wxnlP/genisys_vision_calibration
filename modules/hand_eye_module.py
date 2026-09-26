@@ -7,12 +7,12 @@
 运行：./start_hand_eye.sh
 输出：cfg/calibration/<camera.type>/hand_eye.npz
 """
-import threading
 import time
 from pathlib import Path
 
 import aimrt_py as aimrt
 import cv2
+import rerun as rr
 import yaml
 
 from modules.http_rpc import RpcClient
@@ -99,8 +99,6 @@ AUTO_MARKER_TIMEOUT_S = 2.5
 AUTO_MARKER_STABLE_FRAMES = 4
 FRAME_FLUSH_AFTER_MOVE = 5
 
-WIN = "Hand-Eye Calibration  (Q / ESC to quit)"
-
 
 class HandEyeModule(aimrt.ModuleBase):
     def __init__(self):
@@ -117,12 +115,23 @@ class HandEyeModule(aimrt.ModuleBase):
         self.tcp_pose = None
 
         self.running = False
-        self._thread = None
+
+        # 运行模式：normal / vision_only / motion_only
+        self._mode = "normal"
+        self._vision_found = False
 
         # 相机 / 标定器（Initialize 里构造，线程里打开）
         self._cam = None
         self._calibrator = None
         self._save_path = None
+
+        # rerun（画面显示）
+        self._rr_enabled = False
+        self._rr_port = 9876
+        self._rr_quality = 80
+        self._rr_every = 1
+        self._rr_save = ""
+        self._frame_i = 0
 
         # 自动遍历状态
         self._auto = {
@@ -150,9 +159,16 @@ class HandEyeModule(aimrt.ModuleBase):
             config = yaml.safe_load(f)
         work_executor_name = str(config["work_executor"])
         sub_cart_pose_topic = str(config["sub_cart_pose_topic"])
+        self._mode = str(config.get("mode", "normal"))
         cam_cfg = config["camera"]
         aruco_cfg = config["calibration"]["aruco"]
         he_method = config["calibration"].get("hand_eye_method", "TSAI")
+        rr_cfg = config.get("rerun") or {}
+        self._rr_enabled = bool(rr_cfg.get("enabled", True))
+        self._rr_port = int(rr_cfg.get("grpc_port", 9876))
+        self._rr_quality = int(rr_cfg.get("jpeg_quality", 80))
+        self._rr_every = max(1, int(rr_cfg.get("log_every_n_frames", 1)))
+        self._rr_save = str(rr_cfg.get("save_rrd", "") or "")
 
         self.work_executor = self.core.GetExecutorManager().GetExecutor(work_executor_name)
         self.sub_cart_pose = self.core.GetChannelHandle().GetSubscriber(sub_cart_pose_topic)
@@ -171,22 +187,20 @@ class HandEyeModule(aimrt.ModuleBase):
             / "cfg" / "calibration" / str(cam_cfg["type"]) / "hand_eye.npz"
         )
 
-        print(f"[Init] camera={cam_cfg['type']}  solver={he_method}  "
-              f"aruco={aruco_cfg['marker_length_m'] * 100:.1f}cm  "
-              f"poses={len(CALIB_POSES_XYZ)}  output={self._save_path}")
+        aimrt.info(self.logger,
+                   f"[init] mode={self._mode} camera={cam_cfg['type']} solver={he_method} "
+                   f"aruco={aruco_cfg['marker_length_m'] * 100:.1f}cm "
+                   f"poses={len(CALIB_POSES_XYZ)}")
         return True
 
     def Start(self) -> bool:
         self.running = True
-        self._thread = threading.Thread(target=self._calib_loop, name="hand-eye-calib", daemon=True)
-        self._thread.start()
+        self.work_executor.Execute(self._calib_loop)
         return True
 
     def Shutdown(self):
         try:
             self.running = False
-            if self._thread is not None:
-                self._thread.join(timeout=3.0)
             if self._cam is not None:
                 self._cam.close()
             aimrt.info(self.logger, "HandEyeModule shutdown.")
@@ -206,21 +220,32 @@ class HandEyeModule(aimrt.ModuleBase):
     def _calib_loop(self):
         finish_reason = "normal finish"
 
-        try:
-            self._cam.open()
-            print("[Camera] warming up...", end="", flush=True)
-            self._cam.warm_up(20)
-            print(" ready")
-        except Exception as e:
-            print(f"[Camera] 打开失败，标定线程退出: {e}")
+        if self._rr_enabled:
+            try:
+                rr.init("hand_eye_calib", spawn=False)
+                rr.serve_grpc(grpc_port=self._rr_port)
+                if self._rr_save:
+                    rr.save(self._rr_save)
+                aimrt.info(self.logger,
+                           f"[rerun] serve_grpc port={self._rr_port} jpeg_q={self._rr_quality} "
+                           f"every={self._rr_every}"
+                           + (f" save={self._rr_save}" if self._rr_save else ""))
+            except Exception as e:
+                self._rr_enabled = False
+                aimrt.warn(self.logger, f"[rerun] init failed, logging disabled: {e}")
+
+        # motion_only：不开相机、不等标记、不采样
+        if self._mode == "motion_only":
+            self._motion_loop()
             return
 
-        gui = True
         try:
-            cv2.namedWindow(WIN, cv2.WINDOW_AUTOSIZE)
-        except cv2.error:
-            gui = False
-            print("[UI] 无显示环境，转为无界面模式（只在终端输出）")
+            self._cam.open()
+            self._cam.warm_up(20)
+            aimrt.info(self.logger, "[camera] opened")
+        except Exception as e:
+            aimrt.error(self.logger, f"[camera] open failed: {e}")
+            return
 
         try:
             while self.running:
@@ -229,31 +254,66 @@ class HandEyeModule(aimrt.ModuleBase):
                     continue
 
                 marker = self._cam.detect_aruco(bgr)
-                if self._tick(marker):
-                    finish_reason = "auto traversal completed"
 
-                if gui:
-                    vis = self._cam.draw_aruco(bgr)
-                    self._draw_osd(vis, marker)
-                    cv2.imshow(WIN, vis)
-                    if cv2.waitKey(30) & 0xFF in (ord('q'), ord('Q'), 27):
-                        finish_reason = "window exit"
-                        break
-                    if cv2.getWindowProperty(WIN, cv2.WND_PROP_VISIBLE) < 1:
-                        finish_reason = "window closed"
-                        break
+                if self._mode == "normal":
+                    if self._tick(marker):
+                        finish_reason = "auto traversal completed"
                 else:
-                    time.sleep(0.03)   # 无界面时按 ~30fps 节流
+                    self._report_vision(marker)
 
-                if self._auto["finished"]:
+                self._log_frame(bgr, marker)
+
+                if self._mode == "normal" and self._auto["finished"]:
                     break
         except KeyboardInterrupt:
             finish_reason = "Ctrl+C interrupt"
         finally:
-            if gui:
-                cv2.destroyAllWindows()
             self._cam.close()
-            self._compute_and_save(finish_reason)
+            if self._mode == "normal":
+                self._compute_and_save(finish_reason)
+            else:
+                aimrt.info(self.logger, f"[finish] {finish_reason} (vision_only, no solve)")
+
+    def _report_vision(self, marker):
+        """vision_only：只在“识别到 / 丢失”发生变化时记录，避免刷屏。"""
+        found = marker is not None
+        if found == self._vision_found:
+            return
+        self._vision_found = found
+        if found:
+            t = marker.T_marker2cam[:3, 3]
+            aimrt.info(self.logger,
+                       f"[vision] marker id={marker.id} "
+                       f"x={t[0]:+.3f} y={t[1]:+.3f} z={t[2]:+.3f}")
+        else:
+            aimrt.info(self.logger, "[vision] marker lost")
+
+    def _motion_loop(self):
+        """motion_only：只走 50 个点位，不开相机、不等标记、不采样。"""
+        total = len(CALIB_POSES_XYZ)
+        ok = skip = 0
+        for idx, (x, y, z, roll, pitch, yaw) in enumerate(CALIB_POSES_XYZ):
+            if not self.running:
+                break
+            aimrt.info(self.logger,
+                       f"[pose {idx + 1}/{total}] x={x:.3f} y={y:.3f} z={z:.3f} "
+                       f"rpy=({roll:.2f},{pitch:.2f},{yaw:.2f})")
+            if not self.rpc.movej_pose(x, y, z, roll, pitch, yaw):
+                aimrt.warn(self.logger,
+                           f"[pose {idx + 1}/{total}] move failed, skip: {self.rpc.last_error}")
+                skip += 1
+                continue
+            ok += 1
+            time.sleep(0.2)   # 等 pose_current 更新
+            if self.tcp_pose is None:
+                aimrt.warn(self.logger, f"[pose {idx + 1}/{total}] no pose_current")
+                continue
+            t = self.tcp_pose[:3, 3]
+            r, p, yy = rotation_matrix_to_euler_zyx(self.tcp_pose[:3, :3])
+            aimrt.info(self.logger,
+                       f"[pose {idx + 1}/{total}] reached x={t[0]:+.4f} y={t[1]:+.4f} z={t[2]:+.4f} "
+                       f"rpy=({r:+.3f},{p:+.3f},{yy:+.3f})")
+        aimrt.info(self.logger, f"[motion] done ok={ok} skip={skip} total={total}")
 
     # ---------- 自动遍历状态机 ----------
 
@@ -263,8 +323,9 @@ class HandEyeModule(aimrt.ModuleBase):
         while self._auto["idx"] < total:
             idx = self._auto["idx"]
             x, y, z, roll, pitch, yaw = CALIB_POSES_XYZ[idx]
-            print(f"\n[Auto] Pose {idx + 1}/{total}: "
-                  f"pos=({x:.2f},{y:.2f},{z:.2f}) rpy=({roll:.2f},{pitch:.2f},{yaw:.2f})")
+            aimrt.info(self.logger,
+                       f"[pose {idx + 1}/{total}] x={x:.3f} y={y:.3f} z={z:.3f} "
+                       f"rpy=({roll:.2f},{pitch:.2f},{yaw:.2f})")
 
             ok = self.rpc.movej_pose(x, y, z, roll, pitch, yaw)
             if ok:
@@ -275,11 +336,12 @@ class HandEyeModule(aimrt.ModuleBase):
                 self._flush_frames()
                 return False
 
-            print(f"[Auto] Pose {idx + 1}/{total} 不可达 / 运动失败，跳过")
+            aimrt.warn(self.logger,
+                       f"[pose {idx + 1}/{total}] move failed, skip: {self.rpc.last_error}")
             self._auto["idx"] += 1
 
         self._auto["finished"] = True
-        print("\n[Auto] 所有预设点位已走完")
+        aimrt.info(self.logger, f"[poses] all {total} done")
         return True
 
     def _tick(self, marker) -> bool:
@@ -304,7 +366,7 @@ class HandEyeModule(aimrt.ModuleBase):
             auto["stable_frames"] = 0
 
         if time.monotonic() >= auto["timeout_at"]:
-            print(f"[Auto] Pose {pose_no}/{total} 等待 ArUco 超时，跳过")
+            aimrt.warn(self.logger, f"[pose {pose_no}/{total}] marker timeout, skip")
             auto["idx"] += 1
             auto["phase"] = "idle"
             auto["stable_frames"] = 0
@@ -317,45 +379,56 @@ class HandEyeModule(aimrt.ModuleBase):
         for _ in range(FRAME_FLUSH_AFTER_MOVE):
             self._cam.get_frame()
 
+    def _log_frame(self, bgr, marker):
+        """把标注后的画面推给 rerun。"""
+        if not self._rr_enabled:
+            return
+        self._frame_i += 1
+        if self._frame_i % self._rr_every:
+            return
+        vis = self._cam.draw_aruco(bgr)
+        self._draw_osd(vis, marker)
+        rgb = cv2.cvtColor(vis, cv2.COLOR_BGR2RGB)
+        rr.log("camera", rr.Image(rgb).compress(jpeg_quality=self._rr_quality))
+
     # ---------- 采样与求解 ----------
 
     def _capture_sample(self, marker, source: str) -> bool:
         if self.tcp_pose is None:
-            print("  [Skip] 尚未收到 TCP 位姿，跳过本样本")
+            aimrt.warn(self.logger, f"[{source}] no tcp pose yet, sample dropped")
             return False
 
         T_g2b = self.tcp_pose
         c = self._calibrator
-        print(f"\n[Sample {c.n_samples + 1}] {source}")
-        print(f"  ArUco: x={marker.T_marker2cam[0, 3]:.3f} "
-              f"y={marker.T_marker2cam[1, 3]:.3f} "
-              f"z={marker.T_marker2cam[2, 3]:.3f} m")
+        m = marker.T_marker2cam[:3, 3]
         t = T_g2b[:3, 3]
-        print(f"  TCP  : x={t[0]:.4f} y={t[1]:.4f} z={t[2]:.4f} m")
         c.add_sample(T_g2b, marker.T_marker2cam)
-        print(f"  [OK] 累计样本 {c.n_samples}")
+        aimrt.info(self.logger,
+                   f"[sample {c.n_samples}] {source} "
+                   f"marker=({m[0]:+.3f},{m[1]:+.3f},{m[2]:.3f}) "
+                   f"tcp=({t[0]:+.4f},{t[1]:+.4f},{t[2]:+.4f})")
         return True
 
     def _compute_and_save(self, reason: str) -> bool:
         c = self._calibrator
-        print(f"\n[Finish] {reason}")
+        aimrt.info(self.logger, f"[finish] {reason}")
         if c is None or c.n_samples < MIN_CALIB_SAMPLES:
             n = 0 if c is None else c.n_samples
-            print(f"[Result] 样本不足（{n} < {MIN_CALIB_SAMPLES}），未求解")
+            aimrt.warn(self.logger, f"[result] not enough samples: {n} < {MIN_CALIB_SAMPLES}")
             return False
 
-        print(f"[Result] 用 {c.n_samples} 个样本求解...")
         try:
             result = c.calibrate(min_samples=MIN_CALIB_SAMPLES)
             HandEyeCalibrator.save(result, self._save_path)
             t = result.T_result[:3, 3]
-            print(f"[Result] T_cam2gripper 平移: x={t[0]:.4f} y={t[1]:.4f} z={t[2]:.4f} m")
-            print(f"[Result] 已保存到 {self._save_path}")
+            aimrt.info(self.logger,
+                       f"[result] n={c.n_samples} t_cam2gripper=({t[0]:+.4f},{t[1]:+.4f},{t[2]:+.4f})")
+            aimrt.info(self.logger, f"[result] saved to {self._save_path}")
             if c.n_samples < 15:
-                print("[Result] 提示：样本 < 15，精度有限，建议再采一些")
+                aimrt.warn(self.logger, "[result] n<15, accuracy limited")
             return True
         except Exception as e:
-            print(f"[Result] 求解失败: {e}")
+            aimrt.error(self.logger, f"[result] solve failed: {e}")
             return False
 
     # ---------- OSD ----------
@@ -370,25 +443,28 @@ class HandEyeModule(aimrt.ModuleBase):
         else:
             osd(f"No marker  samples:{n}", 28, (80, 80, 220))
 
-        auto = self._auto
-        total = len(CALIB_POSES_XYZ)
-        if auto["finished"]:
-            status = "all poses done"
-        elif auto["phase"] == "idle":
-            status = "moving..."
+        if self._mode != "normal":
+            osd(self._mode.upper(), 50, (180, 180, 60))
         else:
-            remain = max(0.0, auto["timeout_at"] - time.monotonic())
-            status = (f"pose {(auto['pose_idx'] or 0) + 1}/{total} marker stable "
-                      f"{auto['stable_frames']}/{AUTO_MARKER_STABLE_FRAMES}  wait {remain:.1f}s")
-        osd(f"AUTO: {status}", 50, (180, 180, 60))
+            auto = self._auto
+            total = len(CALIB_POSES_XYZ)
+            if auto["finished"]:
+                status = "all poses done"
+            elif auto["phase"] == "idle":
+                status = "moving..."
+            else:
+                remain = max(0.0, auto["timeout_at"] - time.monotonic())
+                status = (f"pose {(auto['pose_idx'] or 0) + 1}/{total} marker stable "
+                          f"{auto['stable_frames']}/{AUTO_MARKER_STABLE_FRAMES}  wait {remain:.1f}s")
+            osd(f"AUTO: {status}", 50, (180, 180, 60))
+
+            filled = min(n, 15) * (400 // 15)
+            cv2.rectangle(vis, (10, 86), (10 + filled, 98), (0, 200, 100), -1)
+            cv2.rectangle(vis, (10, 86), (410, 98), (160, 160, 160), 1)
+            cv2.putText(vis, f"{n}/15", (10, 113), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
 
         if self.tcp_pose is not None:
             t = self.tcp_pose[:3, 3]
             r, p, y = rotation_matrix_to_euler_zyx(self.tcp_pose[:3, :3])
             osd(f"TCP x={t[0]:+.3f} y={t[1]:+.3f} z={t[2]:+.3f} "
                 f"rpy=[{r:+.2f} {p:+.2f} {y:+.2f}]", 72)
-
-        filled = min(n, 15) * (400 // 15)
-        cv2.rectangle(vis, (10, 86), (10 + filled, 98), (0, 200, 100), -1)
-        cv2.rectangle(vis, (10, 86), (410, 98), (160, 160, 160), 1)
-        cv2.putText(vis, f"{n}/15", (10, 113), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
