@@ -1,0 +1,4 @@
+.vscode/
+Log
+__pycache__/
+*.npz
