@@ -48,8 +48,7 @@ class RpcClient:
         """MoveJPose 到指定位姿（阻塞，返回 True / None）。
 
         rpy 为 intrinsic ZYX 欧拉角，单位弧度。
-        v/a 是**关节空间**的速度与加速度，单位 rad/s 与 rad/s²
-        （默认 0.8 / 0.4，取自 genisys examples；注意 MoveL 用的是 m/s，别混）。
+        v/a 是关节空间的速度与加速度，单位 rad/s 与 rad/s²。
         """
         w, qx, qy, qz = rpy_to_quat(roll, pitch, yaw)
         return self._post(
