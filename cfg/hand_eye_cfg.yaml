@@ -49,3 +49,18 @@ aimrt:
 HandEyeModule:
   work_executor: work_thread_pool
   sub_cart_pose_topic: /geniarm/pose_current
+
+  # ---- 手眼标定参数----
+
+  camera:
+    type: orbbec_gemini305
+    color_width: 1280
+    color_height: 720
+    fps: 30
+
+  calibration:
+    aruco:
+      marker_length_m: 0.1
+      dict_id: 0
+      target_marker_id: 0
+    hand_eye_method: TSAI
