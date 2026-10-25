@@ -1,0 +1,8 @@
+Joint[] position
+float64 r
+float64 v
+float64 a
+---
+MoveResponse error
+uint64 task_id
+float64 duration_ms

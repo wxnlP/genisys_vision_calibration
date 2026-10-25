@@ -1,0 +1,7 @@
+float64 target_torque
+float64 switch_velocity
+float64 approach_velocity
+float64 approach_accel
+bool closed_release
+---
+MoveResponse error

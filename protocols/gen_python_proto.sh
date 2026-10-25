@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# Regenerate the Python headers (*_pb2.py / *_pb2.pyi) for protocols/proto/*.proto
-# into protocols/.
-#
-# Run from anywhere:  ./protocols/gen_python_proto.sh
-#
-# Notes:
-#  * protoc 33.5 emits gencode "Protobuf Python Version: 6.33.5", the same
-#    generation used by the sibling statics_calibration project. It needs a
-#    protobuf runtime >= 6.x -- the robo_aimrt conda env (protobuf 7.35.1) works;
-#    the system python3 (protobuf 3.12.4) CANNOT import these files.
-#  * protoc writes an *absolute* `import header_pb2`, which breaks
-#    `from protocols.joint_state_pb2 import JointStateArray`. The sed step below
-#    rewrites cross-proto imports to be relative so the modules resolve as a
-#    package (this mirrors statics_calibration/protocols/pb/*_pb2.py).
+# 从 protocols/pb/{aimrt,genisys}/*.proto 生成 Python 模块到 protocols/pb/_gen。
 set -euo pipefail
 
-cd "$(dirname "$0")/.."   # project root
+cd "$(dirname "$0")/.."
 
-protoc -I protocols/proto \
-       --python_out=protocols \
-       --pyi_out=protocols \
-       protocols/proto/*.proto
+PROTO_ROOT=protocols/pb
+GEN_DIR="$PROTO_ROOT/_gen"
 
-# absolute -> relative imports for generated cross-proto dependencies
+if ! command -v protoc >/dev/null 2>&1; then
+    echo "未找到 protoc，请先安装 protobuf 编译器。" >&2
+    exit 1
+fi
+
+mkdir -p "$GEN_DIR"
+
+protoc -I "$PROTO_ROOT/aimrt" \
+       -I "$PROTO_ROOT/genisys" \
+       --python_out="$GEN_DIR" \
+       --pyi_out="$GEN_DIR" \
+       "$PROTO_ROOT"/aimrt/*.proto \
+       "$PROTO_ROOT"/genisys/*.proto
+
+# 把跨文件的绝对 import 改成相对 import，便于按包导入
 sed -i -E 's/^import ([A-Za-z0-9_]+_pb2) as ([A-Za-z0-9_]+)$/from . import \1 as \2/' \
-    protocols/*_pb2.py protocols/*_pb2.pyi
+    "$GEN_DIR"/*_pb2.py "$GEN_DIR"/*_pb2.pyi
 
-echo "regenerated:"
-ls -1 protocols/*_pb2.py protocols/*_pb2.pyi
+touch "$GEN_DIR/__init__.py"
+
+echo "已生成到 $GEN_DIR"
