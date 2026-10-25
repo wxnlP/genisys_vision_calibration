@@ -48,7 +48,21 @@ aimrt:
 # Module custom configuration
 HandEyeModule:
   work_executor: work_thread_pool
-  sub_cart_pose_topic: /geniarm/pose_current
+
+  # ---- genisys 控制接口 ----
+  rpc_url: http://127.0.0.1:50080     # net_plugin HTTP 端口
+  rpc_timeout_s: 30
+  # 标定样本的 T_gripper2base 取法兰位姿（相机安装基准）
+  sub_flange_pose_topic: /geniarm/flange_pose
+  # 运动完成状态：genisys_msgs/msg/TaskContext
+  sub_task_context_topic: /geniarm/task_context
+
+  # Move* RPC 受理即返回，完成状态由 task_context 的终态决定
+  motion:
+    timeout_margin_s: 3.0            # 超时 = duration_ms + margin
+    min_timeout_s: 5.0
+    move_retry: 2                    # 控制器忙导致拒绝时的重试次数
+    retry_delay_s: 0.5               # 被拒绝后重试前的等待
 
   mode: motion_only
 

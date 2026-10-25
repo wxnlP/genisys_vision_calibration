@@ -3,6 +3,7 @@
 Log
 __pycache__/
 *.npz
+tests/
 
 protocols/pb/_gen/
 protocols/ros2/build/
