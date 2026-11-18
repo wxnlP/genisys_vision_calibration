@@ -1,7 +1,6 @@
-geometry_msgs/Pose pose
-float64 v
-float64 a
+geometry_msgs/Pose pose  # 目标 TCP 位姿（基座坐标系，位置 [m]）
+float64 v                # 关节空间路径速度上限 [rad/s]
+float64 a                # 关节空间路径加速度上限 [rad/s²]
 ---
-MoveResponse error
-uint64 task_id
-float64 duration_ms
+Error error              # 服务返回状态
+MoveResult result        # 运动任务信息

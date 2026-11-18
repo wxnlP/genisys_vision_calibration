@@ -80,7 +80,7 @@ class RpcClient:
         if result is None:
             return MoveResult(False, msg=self.last_error)
 
-        status_info = result.get("error") or result.get("common_rsp") or {}
+        status_info = result.get("error")
         if not isinstance(status_info, dict):
             status_info = {}
         try:
@@ -88,13 +88,17 @@ class RpcClient:
         except (TypeError, ValueError):
             code = -1
         msg = str(status_info.get("msg", "") or "")
+        # Genisys Move* 响应：error 为受理状态，result 为 MoveResult。
+        task_info = result.get("result")
+        if not isinstance(task_info, dict):
+            task_info = {}
         try:
-            task_id = int(result.get("task_id", 0) or 0)
-        except (TypeError, ValueError):
+            task_id = int(task_info.get("task_id", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
             task_id = 0
         try:
-            duration_ms = float(result.get("duration_ms", 0.0) or 0.0)
-        except (TypeError, ValueError):
+            duration_ms = float(task_info.get("duration_ms", 0.0) or 0.0)
+        except (TypeError, ValueError, OverflowError):
             duration_ms = 0.0
 
         accepted = code == 0

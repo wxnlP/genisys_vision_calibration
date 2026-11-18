@@ -7,12 +7,12 @@ import "vector3.proto";
 package genisys.protocols;
 
 message Pose {
-  aimrt.protocols.geometry.Quaternion orientation = 1;
-  aimrt.protocols.geometry.Vector3 position = 2;
+  aimrt.protocols.geometry.Quaternion orientation = 1;  // 姿态四元数
+  aimrt.protocols.geometry.Vector3 position = 2;        // 三轴位置 [m]
 }
 
 
 message PoseStamped {
-  aimrt.protocols.common.Header header = 1;
-  Pose pose = 2;
+  aimrt.protocols.common.Header header = 1;             // 消息头
+  Pose pose = 2;                                        // 位姿
 }

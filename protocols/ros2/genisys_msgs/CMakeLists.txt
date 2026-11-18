@@ -13,8 +13,11 @@ find_package(geometry_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Error.msg"
+  "msg/IKRequest.msg"
+  "msg/IKResult.msg"
   "msg/Joint.msg"
-  "msg/MoveResponse.msg"
+  "msg/MoveResult.msg"
   "msg/RosChangeMe.msg"
   "msg/ServoJCommand.msg"
   "msg/ServoJPoseCommand.msg"
@@ -22,6 +25,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TaskContext.msg"
   "srv/GripperForce.srv"
   "srv/GripperPos.srv"
+  "srv/IKCheck.srv"
   "srv/MoveJ.srv"
   "srv/MoveJMulti.srv"
   "srv/MoveJPose.srv"

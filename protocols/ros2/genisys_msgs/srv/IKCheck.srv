@@ -1,0 +1,9 @@
+IKRequest[] request       # 逆解查询项
+---
+uint8 OK = 0              # 逆解成功
+uint8 NO_SOLUTION = 1     # 无可用逆解
+uint8 INVALID_INPUT = 2   # 输入位姿或坐标系无效
+uint8 FK_VERIFY_WARN = 3  # 正解验证超出容差
+uint8 OTHER_ERRORS = 4    # 其他错误
+IKResult[] results        # 逐项逆解结果
+Error error               # 服务返回状态

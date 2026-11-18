@@ -12,13 +12,13 @@ genisys 机械臂手眼标定（Eye-in-Hand / TSAI），标定 **法兰与相机
 
 采样流程：
 
-- 订阅 `/geniarm/flange_pose`，作为每个样本的 `T_gripper2base`；
-- 用 `MoveJPose` 遍历预设点位，订阅 `/geniarm/task_context` 判断运动完成；
+- 订阅 `/genisys/flange_pose`，作为每个样本的 `T_gripper2base`；
+- 用 `MoveJPose` 遍历预设点位，订阅 `/genisys/task_context` 判断运动完成；
 - ArUco 提供 `T_marker2cam`；
 - 多组 `(T_gripper2base, T_marker2cam)` 求解，结果保存到
   `cfg/calibration/<camera.type>/hand_eye.npz`。
 
-注意：采样使用的是法兰位姿 `/geniarm/flange_pose`，不是 TCP；因此标定结果是相机与法兰之间的变换。
+注意：采样使用的是法兰位姿 `/genisys/flange_pose`，不是 TCP；因此标定结果是相机与法兰之间的变换。
 
 ## 环境依赖与启动前准备
 
@@ -34,7 +34,7 @@ source protocols/ros2/install/local_setup.bash
 
 `start_hand_eye.sh` 会自动执行这两步；手动运行 `main.py` 时必须先 source。
 
-首次使用前构建 `genisys_msgs`：
+首次使用或同步新版协议后，重新构建 `genisys_msgs`：
 
 ```bash
 ./protocols/build_genisys_msgs.sh
@@ -51,7 +51,7 @@ source protocols/ros2/install/local_setup.bash
   ./protocols/gen_python_proto.sh
   ```
 
-- genisys 已启动：HTTP RPC `127.0.0.1:50080`，zenoh 话题`/geniarm/flange_pose`、`/geniarm/task_context`。
+- genisys 已启动：HTTP RPC `127.0.0.1:50080`，zenoh 话题`/genisys/flange_pose`、`/genisys/task_context`。
 
 生成/构建脚本和目录说明见 [protocols/README.md](protocols/README.md)。
 
@@ -91,8 +91,8 @@ export AIMRT_PLUGIN_DIR="$("${HOME}/miniconda3/envs/robo_aimrt/bin/python" -c \
 |:---|:---|:---|
 | `rpc_url` | genisys 运动 RPC（net_plugin HTTP） | `http://127.0.0.1:50080` |
 | `rpc_timeout_s` | HTTP 请求超时，秒 | `30` |
-| `sub_flange_pose_topic` | 法兰位姿话题，作为 `T_gripper2base` | `/geniarm/flange_pose` |
-| `sub_task_context_topic` | 运动完成状态话题 | `/geniarm/task_context` |
+| `sub_flange_pose_topic` | 法兰位姿话题，作为 `T_gripper2base` | `/genisys/flange_pose` |
+| `sub_task_context_topic` | 运动完成状态话题 | `/genisys/task_context` |
 | `motion.timeout_margin_s` | 等待超时 = `duration_ms/1000 + margin` | `3.0` |
 | `motion.min_timeout_s` | 单次运动最小等待时间，秒 | `5.0` |
 | `motion.move_retry` | 控制器忙/拒绝时的重试次数 | `2` |

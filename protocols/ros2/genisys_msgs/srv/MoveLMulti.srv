@@ -1,8 +1,7 @@
-geometry_msgs/Pose[] pose
-float64 r
-float64 v
-float64 a
+geometry_msgs/Pose[] pose  # TCP 路点位姿（基座坐标系，位置 [m]）
+float64 r                  # TCP 拐角融合半径 [m]
+float64 v                  # TCP 路径线速度上限 [m/s]
+float64 a                  # TCP 路径切向线加速度上限 [m/s²]
 ---
-MoveResponse error
-uint64 task_id
-float64 duration_ms
+Error error                # 服务返回状态
+MoveResult result          # 运动任务信息

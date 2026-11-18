@@ -1,7 +1,10 @@
-float64 target_torque
-float64 switch_velocity
-float64 approach_velocity
-float64 approach_accel
-bool closed_release
+float64 target_torque      # 目标夹持力矩 [N·m]
+float64 switch_velocity    # 切入力控的速度差阈值 [rad/s]
+float64 approach_velocity  # 接近阶段角速度 [rad/s]
+float64 approach_accel     # 接近阶段角加速度 [rad/s²]
+bool closed_release        # 接近闭合时是否释放力矩
 ---
-MoveResponse error
+uint8 OK = 0               # 夹持成功
+uint8 FAILED = 1           # 夹持失败
+uint8 EMPTY = 2            # 未夹到物体
+Error error                # 服务返回状态

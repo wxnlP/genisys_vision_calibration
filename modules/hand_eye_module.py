@@ -184,9 +184,9 @@ class HandEyeModule(aimrt.ModuleBase):
         rpc_timeout_s = float(config.get("rpc_timeout_s", 30.0))
         # 标定样本用法兰位姿；运动完成由 task_context 通知。
         sub_flange_pose_topic = str(
-            config.get("sub_flange_pose_topic", "/geniarm/flange_pose"))
+            config.get("sub_flange_pose_topic", "/genisys/flange_pose"))
         sub_task_context_topic = str(
-            config.get("sub_task_context_topic", "/geniarm/task_context"))
+            config.get("sub_task_context_topic", "/genisys/task_context"))
         self._mode = str(config.get("mode", "normal"))
         cam_cfg = config["camera"]
         aruco_cfg = config["calibration"]["aruco"]

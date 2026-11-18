@@ -1,7 +1,6 @@
-geometry_msgs/Pose pose
-float64 v
-float64 a
+geometry_msgs/Pose pose  # 目标 TCP 位姿（基座坐标系，位置 [m]）
+float64 v                # TCP 速度上限：纯平移 [m/s]，纯旋转 [rad/s]；混合运动共用同一数值作为线速度和角速度上限
+float64 a                # TCP 加速度上限：纯平移 [m/s²]，纯旋转 [rad/s²]；混合运动共用同一数值作为线加速度和角加速度上限
 ---
-MoveResponse error
-uint64 task_id
-float64 duration_ms
+Error error              # 服务返回状态
+MoveResult result        # 运动任务信息

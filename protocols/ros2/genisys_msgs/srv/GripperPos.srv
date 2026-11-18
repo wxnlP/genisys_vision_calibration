@@ -1,6 +1,6 @@
-float64 position
-float64 velocity
-float64 acceleration
-float64 effort
+float64 position      # 目标开合位置占最大行程的比例（0 为闭合，1 为完全张开）
+float64 velocity      # 夹爪角速度上限 [rad/s]
+float64 acceleration  # 夹爪角加速度上限 [rad/s²]
+float64 effort        # 夹爪前馈力矩 [N·m]
 ---
-MoveResponse error
+Error error           # 服务返回状态
